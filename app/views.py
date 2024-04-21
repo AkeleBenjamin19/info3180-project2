@@ -13,6 +13,12 @@ from werkzeug.utils import secure_filename
 ###
 # Routing for postman 
 ###
+
+@app.route('/api/v1/test', methods=['GET'])
+def test():
+    alist=["This","is","a","test"]
+    return jsonify({'test': 'Testing'}), 200
+
 @app.route('/api/v1/register', methods=['POST'])
 def register_user():
     """Render the website's register page."""
@@ -185,7 +191,7 @@ def login():
 def logout():
     session.pop('user_id', None)
     flash('Logged out!!!')
-    return redirect(url_for('home'))
+    return redirect(url_for('login'))
 
 
 @app.route('/users/{user_id}', methods=['GET'])
