@@ -8,7 +8,8 @@ from app.models import UserProfile,FollowTable,PostTable,LikeTable
 from app.forms import LoginForm,PostForm,RegisterForm
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
-
+from sqlalchemy import or_
+from sqlalchemy.orm.exc import NoResultFound
 
 ###
 # Routing for your application.
@@ -28,6 +29,7 @@ def test():
     alist=["This","is","a","test"]
     return jsonify({'test': 'Testing'}), 200
 
+
 @app.route('/api/v1/register', methods=['POST'])
 def register_user():
     """Render the website's register page."""
@@ -39,30 +41,38 @@ def register_user():
     location = request.json.get('location')
     biography = request.json.get('biography')
     filename = request.json.get('profile_photo')
-    joined_on=datetime.now(timezone.utc)
+    joined_on = datetime.now(timezone.utc)
+    
     # Check if the username or email already exists in the database
-    existing_user = db.session.execute(db.select(UserProfile).filterby((username == username) | (email == email)).first())
+    existing_user = db.session.query(UserProfile).filter(or_(UserProfile.username == username, UserProfile.email == email)).scalar()
     if existing_user:
         return jsonify({'error': 'Username or email already exists.'}), 400
     
-    new_user=UserProfile(username,password,firstname,lastname,email,location,biography,filename,joined_on)
-    db.session.add(new_user) 
+    new_user = UserProfile(username, password, firstname, lastname, email, location, biography, filename, joined_on)
+    db.session.add(new_user)
     db.session.commit()
+    
     return jsonify({'message': 'User registered successfully.'}), 201
 
-@app.route('/api/v1/auth/login',methods=['POST'])
+
+
+
+@app.route('/api/v1/auth/login', methods=['POST'])
 def login_user():
     username = request.json.get('username')
     password = request.json.get('password')
 
-    user=db.session.execute(db.select(UserProfile).filter_by(username=username)).scalar_one()
-    if user and user.password == password:
+
+    user = db.session.execute(db.select(UserProfile).filter_by(username=username)).scalar_one()
+    if user is not None and check_password_hash(user.password, password):   
         # User authentication successful, set user ID in session
         session['user_id'] = user.id
         return jsonify({'message': 'Login successful.', 'user_id': user.id}), 200
     else:
         # Invalid username or password
         return jsonify({'error': 'Invalid username or password.'}), 401
+
+
 
 def logout_user():
     # Check if the user is logged in
@@ -74,39 +84,46 @@ def logout_user():
         # User is not logged in
         return jsonify({'error': 'User is not logged in.'}), 401
 
-@app.route('/api/v1/users/{user_id}/posts', methods=['GET'])
+@app.route('/api/v1/users/<user_id>/posts', methods=['GET'])
 def show_user_posts(user_id):
-    user_posts=db.session.execute(db.select(PostTable).filter_by(user_id=user_id)).scalars()
+    user_posts = db.session.execute(db.select(PostTable).filter_by(user_id=user_id)).scalars()
     # Convert the queried posts to a list of dictionaries
     posts_list = []
     for post in user_posts:
-        post_dict={
+        post_dict = {
             'id': post.id,
             'caption': post.caption,
             'photo': post.photo,
             'user_id': post.user_id,
             'created_on': post.created_on.strftime("%Y-%m-%d %H:%M:%S")  # Format datetime as string
         }
-    posts_list.append(post_dict)
-    return jsonify(post_dict)
+        posts_list.append(post_dict)
+    return jsonify(posts_list)
 
-@app.route('/api/v1/users/{user_id}/posts', methods=['POST'])
-def add_user_post():
+
+from datetime import datetime
+
+@app.route('/api/v1/users/<user_id>/posts', methods=['POST'])
+def add_user_post(user_id):
     # Extract data from the JSON request sent via Postman
     caption = request.json.get('caption')
     photo = request.json.get('photo')
     user_id = session['user_id']  # Get user ID from the session
 
-    # Create a new post instance
-    new_post = PostTable(caption=caption, photo=photo, user_id=user_id)
+    # Get the current date and time
+    created_on = datetime.now()
+
+    # Create a new post instance with the created_on argument
+    new_post = PostTable(caption=caption, photo=photo, user_id=user_id, created_on=created_on)
 
     # Add the new post to the database session and commit the transaction
     db.session.add(new_post)
     db.session.commit()
-
+ 
     return jsonify({'message': 'Post added successfully.'}), 201
 
-@app.route('/api/users/{user_id}/follow', methods=['POST'])
+
+@app.route('/api/users/<user_id>/follow', methods=['POST'])
 def create_follow(user_id):
     # Extract data from the JSON request sent via Postman
     target_user_id = request.json.get('target_user_id')
@@ -135,7 +152,7 @@ def show_all_posts():
         posts_list.append(post_dict)
     return jsonify(posts_list)
 
-@app.route('/api/v1/posts/{post_id}/like', methods=['POST'])
+@app.route('/api/v1/posts/<post_id>/like', methods=['POST'])
 def set_like(post_id):
     # Extract data from the JSON request sent via Postman
     post_id = request.json.get('post_id')
@@ -373,5 +390,4 @@ def add_header(response):
 
 @app.errorhandler(404)
 def page_not_found(error):
-    """Custom 404 page."""
-    return render_template('404.html'), 404
+     return jsonify({'error': 'Not Found'}), 404
