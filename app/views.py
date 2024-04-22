@@ -143,7 +143,11 @@ def set_like(post_id):
     new_like = LikeTable(post_id, user_id)
     db.session.add(new_like)
     db.session.commit()
-    return render_template('all_posts.html')
+    like_dict={
+        'post_id':post_id,
+        'user_id':user_id
+    }
+    return jsonify(like_dict)
 
 ###
 # Routing for  application.
@@ -173,11 +177,24 @@ def register():
         photoForm.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         joined_on=datetime.now(timezone.utc)
 
-        new_user=UserProfile(id,usernameForm,passwordForm,firstnameForm,lastnameForm,emailForm,locationForm,biographyForm,filename,joined_on)
+        new_user=UserProfile(usernameForm,passwordForm,firstnameForm,lastnameForm,emailForm,locationForm,biographyForm,filename,joined_on)
         db.session.add(new_user) 
         db.session.commit()
-        return redirect(url_for('login.html'))
-    return render_template('register.html', form=form)
+
+        register_dict={
+            'username':new_user.username,
+            'password': new_user.password,
+            'firstname':new_user.firstname,
+            'lastname':new_user.lastname,
+            'email':new_user.email,
+            'location':new_user.location,
+            'biography':new_user.biography,
+            'profile_photo_name':new_user.profile_photo,
+            }
+        return jsonify(register_dict)
+    else:
+        errors = form_errors(form)
+        return jsonify({"errors": errors}), 400
 
 @app.route('/login',methods=['POST'])
 def login():
@@ -192,32 +209,39 @@ def login():
         if check_password_hash(user.password,passwordForm):
             # Remember to flash a message to the user
             session['user_id'] = user.id
-            flash('You have logged in successfully !!!')
-            return redirect(url_for('upload')) # The user should be redirected to the upload form instead
-    return render_template("login.html", form=form)
+            login_dict={
+                'username':user.username,
+                'password': user.password,
+            }
+            return jsonify(login_dict) # The user should be redirected to the upload form instead
+        else:
+            errors = form_errors(form)
+            return jsonify({"errors": errors}), 400
 
 @app.route('/logout',methods=['POST'])
 def logout():
     session.pop('user_id', None)
-    flash('Logged out!!!')
-    return redirect(url_for('login'))
+    if 'user_id' in session:
+        # Remove user ID from the session
+        session.pop('user_id', None)
+        return jsonify({'message': 'Logout successful.'}), 200
+    else:
+        return jsonify({'error': 'User is not logged in.'}), 401
 
 
 @app.route('/users/{user_id}', methods=['GET'])
 def user_posts(user_id):
     user_posts=db.session.execute(db.select(PostTable).filter_by(user_id=user_id)).scalars()
     # Convert the queried posts to a list of dictionaries
-    posts_list = []
     for post in user_posts:
-        posts_list.append({
+        posts_dict={
             'id': post.id,
             'caption': post.caption,
             'photo': post.photo,
             'user_id': post.user_id,
             'created_on': post.created_on.strftime("%Y-%m-%d %H:%M:%S")  # Format datetime as string
-        })
-    #return jsonify(posts_list)
-    return render_template('/user_posts.html', posts=posts_list)
+        }
+    return jsonify(posts_dict)
 
 @app.route('/posts/new', methods=['POST'])
 def create_post():
@@ -233,8 +257,18 @@ def create_post():
         new_post=PostTable(captionForm,filename,user_id,created_on)
         db.session.add(new_post) 
         db.session.commit()
-        return redirect(url_for('home.html'))
-    return render_template('post.html', form=form)
+
+        posts_dict={
+            'id': new_post.id,
+            'caption': new_post.caption,
+            'photo': new_post.photo,
+            'user_id': new_post.user_id,
+            'created_on': new_post.created_on.strftime("%Y-%m-%d %H:%M:%S")  # Format datetime as string
+        }
+        return jsonify(posts_dict)
+    else:
+            errors = form_errors(form)
+            return jsonify({"errors": errors}), 400
 
 #@app.route('/<user_id>/follow', methods=['POST'])
 def follow(user_id):
@@ -245,23 +279,27 @@ def follow(user_id):
     new_follow = FollowTable(session_user_id, user_id)
     db.session.add(new_follow)
     db.session.commit()
-    return render_template('user_posts.html')
+
+    follow_dict={
+            'id': new_follow.id,
+            'post_id': new_follow.follower_id,
+            'user_id': new_follow.user_id,
+        }
+    return jsonify(follow_dict)
 
 @app.route('/posts', methods=['GET'])
 def feed():
     user_posts=db.session.execute(db.select(PostTable)).scalars()
     # Convert the queried posts to a list of dictionaries
-    posts_list = []
     for post in user_posts:
-        posts_list.append({
+        posts_dict={
             'id': post.id,
             'caption': post.caption,
             'photo': post.photo,
             'user_id': post.user_id,
             'created_on': post.created_on.strftime("%Y-%m-%d %H:%M:%S")  # Format datetime as string
-        })
-    #return jsonify(posts_list)
-    return render_template('all_posts.html', posts=posts_list)
+        }
+    return jsonify(posts_dict)
 
 #@app.route('/posts/<post_id>/like', methods=['POST'])
 def set_like(post_id):
@@ -269,7 +307,11 @@ def set_like(post_id):
     new_like = LikeTable(post_id, user_id)
     db.session.add(new_like)
     db.session.commit()
-    return render_template('all_posts.html')
+    like_dict={
+        'post_id':post_id,
+        'user_id':user_id
+    }
+    return jsonify(like_dict)
 
 
 ###
