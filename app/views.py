@@ -11,6 +11,15 @@ from werkzeug.utils import secure_filename
 
 
 ###
+# Routing for your application.
+###
+
+@app.route('/')
+def index():
+    return jsonify(message="This is the beginning of our API")
+
+
+###
 # Routing for postman 
 ###
 
@@ -281,19 +290,25 @@ def get_uploaded_images():
         for file in files:
             uploaded_images.append(os.path.join(subdir, file).split("\\")[-1])
     return uploaded_images[1:]
-    
+
 ###
 # The functions below should be applicable to all Flask apps.
 ###
 
-# Flash errors from the form if validation fails
-def flash_errors(form):
+# Here we define a function to collect form errors from Flask-WTF
+# which we can later use
+def form_errors(form):
+    error_messages = []
+    """Collects form errors"""
     for field, errors in form.errors.items():
         for error in errors:
-            flash(u"Error in the %s field - %s" % (
-                getattr(form, field).label.text,
-                error
-), 'danger')
+            message = u"Error in the %s field - %s" % (
+                    getattr(form, field).label.text,
+                    error
+                )
+            error_messages.append(message)
+
+    return error_messages
 
 @app.route('/<file_name>.txt')
 def send_text_file(file_name):
@@ -306,7 +321,8 @@ def send_text_file(file_name):
 def add_header(response):
     """
     Add headers to both force latest IE rendering engine or Chrome Frame,
-    and also to cache the rendered page for 10 minutes.
+    and also tell the browser not to cache the rendered page. If we wanted
+    to we could change max-age to 600 seconds which would be 10 minutes.
     """
     response.headers['X-UA-Compatible'] = 'IE=Edge,chrome=1'
     response.headers['Cache-Control'] = 'public, max-age=0'
