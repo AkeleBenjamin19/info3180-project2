@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import os
+import jwt
 from app import app, db, login_manager
 from flask import jsonify, render_template, request, redirect, url_for, flash, session, abort,send_from_directory
 from flask_login import login_user, logout_user, current_user, login_required
@@ -10,6 +11,9 @@ from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import or_
 from sqlalchemy.orm.exc import NoResultFound
+from flask_wtf.csrf import generate_csrf
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+
 
 ###
 # Routing for your application.
@@ -18,6 +22,10 @@ from sqlalchemy.orm.exc import NoResultFound
 @app.route('/')
 def index():
     return jsonify(message="This is the beginning of our API")
+
+@app.route('/api/v1/csrf-token', methods=['GET'])
+def get_csrf():
+ return jsonify({'csrf_token': generate_csrf()})
 
 
 ###
@@ -29,10 +37,43 @@ def test():
     alist=["This","is","a","test"]
     return jsonify({'test': 'Testing'}), 200
 
-
 @app.route('/api/v1/register', methods=['POST'])
-def register_user():
+def register():
     """Render the website's register page."""
+    form = RegisterForm()
+    if request.method == 'POST':
+        if form.validate_on_submit():
+            #id not needed because it auto incremented
+            username = form.username.data
+            password = form.password.data
+            firstname= form.firstname.data
+            lastname= form.lastname.data
+            email= form.email.data
+            location= form.location.data
+            biography= form.biography.data
+            photo= form.photo.data
+            filename = secure_filename(photo.filename)
+            photo.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+            new_user=UserProfile(username=username,password=password,firstname=firstname,lastname=lastname,email=email,location=location,biography=biography,photo=filename)
+            db.session.add(new_user) 
+            db.session.commit()
+
+            return jsonify({
+                "message":"User Successfully registered", 
+                'username':new_user.username,
+                'password': new_user.password,
+                'firstname':new_user.firstname,
+                'lastname':new_user.lastname,
+                'email':new_user.email,
+                'location':new_user.location,
+                'biography':new_user.biography,
+                'photo':new_user.photo
+                }),200
+        return jsonify({"errors":form_errors(form)}),400
+
+"""@app.route('register', methods=['POST'])
+def register_user():
     username = request.json.get('username')
     password = request.json.get('password')
     firstname = request.json.get('firstname')
@@ -52,12 +93,29 @@ def register_user():
     db.session.add(new_user)
     db.session.commit()
     
-    return jsonify({'message': 'User registered successfully.'}), 201
+    return jsonify({'message': 'User registered successfully.'}), 201"""
 
 
+@app.route('/api/v1/auth/login',methods=['POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
 
+        user=db.session.execute(db.select(UserProfile).filter_by(username=username)).scalar_one() 
+        
+        # Remember to flash a message to the user
+        if check_password_hash(user.password, password):
+        # Generate JWT token
+            access_token = create_access_token(identity=user.id)
+            return jsonify({"message": f"{user.username} successfully logged in!!"},access_token=access_token), 200
+    else:
+        # Invalid credentials
+        errors = form_errors(form)
+        return jsonify({"errors": errors}), 400
 
-@app.route('/api/v1/auth/login', methods=['POST'])
+"""@app.route('/api/v1/auth/login', methods=['POST'])
 def login_user():
     username = request.json.get('username')
     password = request.json.get('password')
@@ -70,11 +128,11 @@ def login_user():
         return jsonify({'message': 'Login successful.', 'user_id': user.id}), 200
     else:
         # Invalid username or password
-        return jsonify({'error': 'Invalid username or password.'}), 401
+        return jsonify({'error': 'Invalid username or password.'}), 401"""
 
 
 
-def logout_user():
+"""def logout_user():
     # Check if the user is logged in
     if 'user_id' in session:
         # Remove user ID from the session
@@ -82,7 +140,7 @@ def logout_user():
         return jsonify({'message': 'Logout successful.'}), 200
     else:
         # User is not logged in
-        return jsonify({'error': 'User is not logged in.'}), 401
+        return jsonify({'error': 'User is not logged in.'}), 401"""
 
 @app.route('/api/v1/users/<user_id>/posts', methods=['GET'])
 def show_user_posts(user_id):
@@ -175,65 +233,6 @@ def home():
     """Render website's home page."""
     return render_template('home.html')
 
-
-@app.route('/register', methods=['POST'])
-def register():
-    """Render the website's register page."""
-    form = RegisterForm()
-    if form.validate_on_submit():
-        #id not needed because it auto incremented
-        usernameForm = form.username.data
-        passwordForm = form.password.data
-        firstnameForm= form.firstname.data
-        lastnameForm= form.lastname.data
-        emailForm= form.email.data
-        locationForm= form.location.data
-        biographyForm= form.biography.data
-        photoForm= form.photo.data
-        filename = secure_filename(photoForm.filename)
-        photoForm.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        joined_on=datetime.now(timezone.utc)
-
-        new_user=UserProfile(usernameForm,passwordForm,firstnameForm,lastnameForm,emailForm,locationForm,biographyForm,filename,joined_on)
-        db.session.add(new_user) 
-        db.session.commit()
-
-        register_dict={
-            'username':new_user.username,
-            'password': new_user.password,
-            'firstname':new_user.firstname,
-            'lastname':new_user.lastname,
-            'email':new_user.email,
-            'location':new_user.location,
-            'biography':new_user.biography,
-            'profile_photo_name':new_user.profile_photo,
-            }
-        return jsonify(register_dict)
-    else:
-        errors = form_errors(form)
-        return jsonify({"errors": errors}), 400
-
-@app.route('/login',methods=['POST'])
-def login():
-    form = LoginForm()
-    if form.validate_on_submit():
-        usernameForm = form.username.data
-        passwordForm = form.password.data
-
-        user=db.session.execute(db.select(UserProfile).filter_by(username=usernameForm)).scalar_one() 
-        
-        #login_user(user)
-        if check_password_hash(user.password,passwordForm):
-            # Remember to flash a message to the user
-            session['user_id'] = user.id
-            login_dict={
-                'username':user.username,
-                'password': user.password,
-            }
-            return jsonify(login_dict) # The user should be redirected to the upload form instead
-        else:
-            errors = form_errors(form)
-            return jsonify({"errors": errors}), 400
 
 @app.route('/logout',methods=['POST'])
 def logout():
@@ -334,21 +333,19 @@ def set_like(post_id):
 ###
 # Functionalities
 ###
-
-@app.route('/uploads/<filename>', methods=['GET'])
+@app.route('/api/v1/photo/<filename>', methods=['GET'])
 def get_image(filename):
-    rootdir=os.getcwd()
-    return send_from_directory(os.path.join(os.getcwd(),app.config['UPLOAD_FOLDER']), filename)
+    return send_from_directory(os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']), filename)
 
 #Load Images
 def get_uploaded_images():
+    import os
     rootdir = os.getcwd()
-    uploaded_images = []
-
+    fileslst = []
     for subdir, dirs, files in os.walk(rootdir + '/uploads'):
         for file in files:
-            uploaded_images.append(os.path.join(subdir, file).split("\\")[-1])
-    return uploaded_images[1:]
+            fileslst.append(file)
+    return fileslst
 
 ###
 # The functions below should be applicable to all Flask apps.

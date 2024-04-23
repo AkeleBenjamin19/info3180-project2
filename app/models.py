@@ -1,5 +1,6 @@
 from . import db
 from werkzeug.security import generate_password_hash
+from datetime import datetime
 
 
 class UserProfile(db.Model):
@@ -13,11 +14,11 @@ class UserProfile(db.Model):
     email = db.Column(db.String(80), unique=True)
     location = db.Column(db.String(255))
     biography = db.Column(db.String(255))
-    profile_photo = db.Column(db.String(255))
-    joined_on = db.Column(db.DateTime())
+    photo = db.Column(db.String(255))
+    joined_on = db.Column(db.DateTime, default=datetime.now())
     
 
-    def __init__(self,username,password,firstname,lastname,email,location,biography,profile_photo,joined_on):
+    def __init__(self,username,password,firstname,lastname,email,location,biography,photo):
         self.username=username
         self.password = generate_password_hash(password)
         self.firstname = firstname
@@ -25,8 +26,7 @@ class UserProfile(db.Model):
         self.email = email
         self.location = location
         self.biography = biography
-        self.profile_photo=profile_photo
-        self.joined_on=joined_on
+        self.photo=photo
         
 
     def is_authenticated(self):
@@ -78,11 +78,10 @@ class PostTable(db.Model):
     caption= db.Column(db.String(255))
     photo= db.Column(db.String(255))
     user_id = db.Column(db.Integer)
-    created_on = db.Column(db.DateTime())
+    created_on = db.Column(db.DateTime, default=datetime.now())
     
 
-    def __init__(self,caption,photo,user_id,created_on):
+    def __init__(self,caption,photo,user_id):
         self.caption=caption
         self.photo=photo
         self.user_id = user_id
-        self.created_on=created_on
