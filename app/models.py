@@ -8,12 +8,12 @@ class UserProfile(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(80),unique=True)
-    password= db.Column(db.String(255))
+    password= db.Column(db.Text)
     firstname = db.Column(db.String(80))
     lastname = db.Column(db.String(80))
     email = db.Column(db.String(80), unique=True)
     location = db.Column(db.String(255))
-    biography = db.Column(db.String(255))
+    biography = db.Column(db.Text)
     photo = db.Column(db.String(255))
     joined_on = db.Column(db.DateTime, default=datetime.now())
     

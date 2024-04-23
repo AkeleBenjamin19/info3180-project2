@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import or_
 from sqlalchemy.orm.exc import NoResultFound
 from flask_wtf.csrf import generate_csrf
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from functools import wraps
 
 
 ###
@@ -26,6 +26,24 @@ def index():
 @app.route('/api/v1/csrf-token', methods=['GET'])
 def get_csrf():
  return jsonify({'csrf_token': generate_csrf()})
+
+def authorize(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'Authorization' not in request.headers:
+            return jsonify({"error": "Token missing!"}), 401
+        
+        token = request.headers["Authorization"].split(" ")[1]
+        try:
+            cur = jwt.decode(token, app.config['SECRET_KEY'], algorithms="HS256")
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired!"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token!"}), 401
+        
+        return f(*args, **kwargs)    
+    return decorated_function
+
 
 
 ###
@@ -99,21 +117,31 @@ def register_user():
 @app.route('/api/v1/auth/login',methods=['POST'])
 def login():
     form = LoginForm()
-    if form.validate_on_submit():
-        username = form.username.data
-        password = form.password.data
-
-        user=db.session.execute(db.select(UserProfile).filter_by(username=username)).scalar_one() 
-        
-        # Remember to flash a message to the user
-        if check_password_hash(user.password, password):
-        # Generate JWT token
-            access_token = create_access_token(identity=user.id)
-            return jsonify({"message": f"{user.username} successfully logged in!!"},access_token=access_token), 200
+    if request.method == "POST":
+        if form.validate_on_submit():
+            username = request.form['username']
+            password = request.form['password']
+            
+            user = UserProfile.query.filter_by(username=username).first()
+            if not user:
+                return jsonify({"error": "User does not exist!"}), 404
+            
+            if not check_password_hash(user.password, password):
+                return jsonify({"error": "Invalid credentials!"}), 401
+            
+            data = {
+                "id": user.id,
+                "username": user.username
+            }
+            
+            token = jwt.encode(data, app.config["SECRET_KEY"], algorithm="HS256")
+            return jsonify({
+                "message": "Login was successful",
+                "token": token
+            })
     else:
-        # Invalid credentials
-        errors = form_errors(form)
-        return jsonify({"errors": errors}), 400
+        return jsonify({"error": "Invalid request!"}), 400
+
 
 """@app.route('/api/v1/auth/login', methods=['POST'])
 def login_user():
