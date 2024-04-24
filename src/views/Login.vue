@@ -59,7 +59,9 @@ import { useRouter } from "vue-router";
                   localStorage.setItem('token', data.token);
               
                   // Redirect to the explore page upon successful login
-                  router.push('/explore');
+                  router.push('/explore').then(() => {
+                  router.go(0); // Reload the current route
+ });
                 }  
             })
             .catch(function (error) {

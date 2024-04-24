@@ -22,8 +22,81 @@
   </div>
 </template>
 
-
 <script setup>
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+
+const posts = ref([]);
+const router = useRouter();
+const token = localStorage.getItem('token');
+const csrf_token = ref('');
+
+async function getCsrfToken() {
+ const response = await fetch('/api/v1/csrf-token');
+ const data = await response.json();
+ csrf_token.value = data.csrf_token;
+}
+
+onMounted(async () => {
+ if (!token) {
+    alert('No token found, please login first.');
+    router.push('/login');
+ } else {
+    await getCsrfToken();
+    fetchPosts();
+ }
+});
+
+const fetchPosts = async () => {
+ try {
+    const response = await fetch('/api/v1/posts', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-CSRFToken': csrf_token.value
+      },
+    });
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json();
+    posts.value = data;
+ } catch (error) {
+    console.error('Error fetching posts:', error);
+ }
+};
+
+const toggleLike = async (postId) => {
+ try {
+    const response = await fetch(`/api/v1/posts/${postId}/like`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrf_token.value
+      },
+    });
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json();
+    console.log(data.message);
+    // Reload posts or update UI accordingly
+    fetchPosts();
+ } catch (error) {
+    console.error('Error toggling like:', error);
+ }
+};
+
+const checkLiked = (postId) => {
+ // Implement actual logic to check if the post is liked by the current user
+ const post = posts.value.find(p => p.id === postId);
+ return post && post.liked_by_current_user;
+};
+
+const goToNewPost = () => {
+ router.push('/posts/new');
+};
+</script>
+
+
+<!-- <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
@@ -96,7 +169,7 @@ onMounted(fetchPosts);
 const goToNewPost = () => {
   router.push('/posts/new');
 };
-</script>
+</script> -->
 
 <style scoped>
 
