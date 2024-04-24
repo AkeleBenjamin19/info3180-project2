@@ -16,7 +16,7 @@
       <div class="form-group mb-3">
         <label for="password" class="form-label">Password</label>
         <br>
-        <input type="text" name="password" v-model="password" class="form-control"/>
+        <input type="password" name="password" v-model="password" class="form-control"/>
       </div>
       <div>
         <button type="submit" class="btn btn-primary">Login</button>
@@ -28,9 +28,12 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
+
     let csrf_token = ref("");
     let success = ref("");
     let errors = ref([]);
+    const router = useRouter();
 
     function loginUser(){
         console.log(csrf_token)
@@ -40,20 +43,27 @@ import { ref, onMounted } from "vue";
             method: 'POST',
             body: form_data,
             headers: {'X-CSRFToken': csrf_token.value}
-            }).then(function (response) {
+            })
+            .then(function (response) {
                 return response.json();
-              })
+            })
             .then(function (data) {
                 if (data.errors) {
                 errors.value = data.errors;
-                return;
-                }
-                success.value = data.message;
-                errors.value = [];
-                console.log(data);
+                } else {
+                  success.value = data.message;
+                  errors.value = [];
+                  console.log(data);
+
+                  // Store the token in local storage
+                  localStorage.setItem('token', data.token);
+              
+                  // Redirect to the explore page upon successful login
+                  router.push('/explore');
+                }  
             })
-                .catch(function (error) {
-                  console.error(error);
+            .catch(function (error) {
+              console.error(error);
             });
     }
 

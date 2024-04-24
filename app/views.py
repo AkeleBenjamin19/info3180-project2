@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import os
 import jwt
 from app import app, db, login_manager
-from flask import jsonify, render_template, request, redirect, url_for, flash, session, abort,send_from_directory
+from flask import jsonify, render_template, request, redirect, url_for, flash, session, abort,send_from_directory, g
 from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.utils import secure_filename
 from app.models import UserProfile,FollowTable,PostTable,LikeTable
@@ -13,7 +13,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm.exc import NoResultFound
 from flask_wtf.csrf import generate_csrf
 from functools import wraps
-
+from datetime import datetime
+from werkzeug.datastructures import FileStorage
+from sqlalchemy import func, literal_column
 
 ###
 # Routing for your application.
@@ -27,41 +29,50 @@ def index():
 def get_csrf():
  return jsonify({'csrf_token': generate_csrf()})
 
+# Create a JWT @authorize decorator
+# This decorator can be used to denote that a specific route should check
+# for a valid JWT token before displaying the contents of that route.
 def authorize(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'Authorization' not in request.headers:
-            return jsonify({"error": "Token missing!"}), 401
-        
-        token = request.headers["Authorization"].split(" ")[1]
+        auth = request.headers.get('Authorization', None) # or request.cookies.get('token', None)
+
+        if not auth:
+            return jsonify({'code': 'authorization_header_missing', 'description': 'Authorization header is expected'}), 401
+
+        parts = auth.split()
+
+        if parts[0].lower() != 'bearer':
+            return jsonify({'code': 'invalid_header', 'description': 'Authorization header must start with Bearer'}), 401
+        elif len(parts) == 1:
+            return jsonify({'code': 'invalid_header', 'description': 'Token not found'}), 401
+        elif len(parts) > 2:
+            return jsonify({'code': 'invalid_header', 'description': 'Authorization header must be Bearer + \s + token'}), 401
+
+        token = parts[1]
         try:
-            cur = jwt.decode(token, app.config['SECRET_KEY'], algorithms="HS256")
+            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+
         except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token expired!"}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Invalid token!"}), 401
-        
-        return f(*args, **kwargs)    
+            return jsonify({'code': 'token_expired', 'description': 'token is expired'}), 401
+        except jwt.DecodeError:
+            return jsonify({'code': 'token_invalid_signature', 'description': 'Token signature is invalid'}), 401
+
+        g.current_user = user = payload
+        return f(*args, **kwargs)
     return decorated_function
 
-
-
-###
-# Routing for postman 
-###
-
-@app.route('/api/v1/test', methods=['GET'])
-def test():
-    alist=["This","is","a","test"]
-    return jsonify({'test': 'Testing'}), 200
+@app.route('/api/v1/secure/user-info', methods=['GET'])
+@authorize
+def get_user_info():
+    user_id = g.current_user['id']
+    return jsonify({'user_id': user_id}), 200
 
 @app.route('/api/v1/register', methods=['POST'])
 def register():
-    """Render the website's register page."""
     form = RegisterForm()
     if request.method == 'POST':
         if form.validate_on_submit():
-            #id not needed because it auto incremented
             username = form.username.data
             password = form.password.data
             firstname= form.firstname.data
@@ -89,29 +100,6 @@ def register():
                 'photo':new_user.photo
                 }),200
         return jsonify({"errors":form_errors(form)}),400
-
-"""@app.route('register', methods=['POST'])
-def register_user():
-    username = request.json.get('username')
-    password = request.json.get('password')
-    firstname = request.json.get('firstname')
-    lastname = request.json.get('lastname')
-    email = request.json.get('email')
-    location = request.json.get('location')
-    biography = request.json.get('biography')
-    filename = request.json.get('profile_photo')
-    joined_on = datetime.now(timezone.utc)
-    
-    # Check if the username or email already exists in the database
-    existing_user = db.session.query(UserProfile).filter(or_(UserProfile.username == username, UserProfile.email == email)).scalar()
-    if existing_user:
-        return jsonify({'error': 'Username or email already exists.'}), 400
-    
-    new_user = UserProfile(username, password, firstname, lastname, email, location, biography, filename, joined_on)
-    db.session.add(new_user)
-    db.session.commit()
-    
-    return jsonify({'message': 'User registered successfully.'}), 201"""
 
 
 @app.route('/api/v1/auth/login',methods=['POST'])
@@ -143,34 +131,128 @@ def login():
         return jsonify({"error": "Invalid request!"}), 400
 
 
-"""@app.route('/api/v1/auth/login', methods=['POST'])
-def login_user():
-    username = request.json.get('username')
-    password = request.json.get('password')
+@app.route('/api/v1/auth/logout', methods=['POST'])
+@authorize
+def logout():
+    return jsonify({"message": "User has been logged out."}), 200
 
+# POST - Used for adding posts to the user's feed
+@app.route('/api/v1/users/<user_id>/posts', methods=['POST'])
+@authorize
+def add_post(user_id):
+    # if g.current_user['id'] != user_id:
+    #     return jsonify({'error': 'Unauthorized access'}), 403
+    
+    form = PostForm()
+    if form.validate_on_submit():
+        caption=form.caption.data
+        photo = form.photo.data
+        filename = secure_filename(photo.filename)
+        photo.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-    user = db.session.execute(db.select(UserProfile).filter_by(username=username)).scalar_one()
-    if user is not None and check_password_hash(user.password, password):   
-        # User authentication successful, set user ID in session
-        session['user_id'] = user.id
-        return jsonify({'message': 'Login successful.', 'user_id': user.id}), 200
+        new_post = PostTable(caption=caption, photo=filename, user_id=g.current_user['id'])
+        db.session.add(new_post)
+        db.session.commit()
+
+        return jsonify({"message": "Post added successfully.", "post_id": new_post.id}), 201
     else:
-        # Invalid username or password
-        return jsonify({'error': 'Invalid username or password.'}), 401"""
+        print(form_errors(form))
+        return jsonify({'errors': form_errors(form)}), 400
+
+# GET - Returns a user's posts
+@app.route('/api/v1/users/<user_id>/posts', methods=['GET'])
+def get_user_posts(user_id):
+    posts = PostTable.query.filter_by(user_id=user_id).all()
+    posts_data = [{"id": post.id, "caption": post.caption, "photo": post.photo, "created_on": post.created_on} for post in posts]
+    return jsonify(posts_data), 200
+
+# POST - Create a Follow relationship between the current user and the target user.
+@app.route('/api/users/<user_id>/follow', methods=['POST'])
+@authorize
+def follow_user(user_id):
+    new_follow = FollowTable(follower_id=g.current_user['id'], user_id=user_id)
+    db.session.add(new_follow)
+    db.session.commit()
+    return jsonify({"message": "Followed user successfully."}), 201
 
 
+# GET - Return all posts for all users
 
-"""def logout_user():
-    # Check if the user is logged in
-    if 'user_id' in session:
-        # Remove user ID from the session
-        session.pop('user_id', None)
-        return jsonify({'message': 'Logout successful.'}), 200
-    else:
-        # User is not logged in
-        return jsonify({'error': 'User is not logged in.'}), 401"""
+@app.route('/api/v1/posts', methods=['GET'])
+@authorize
+def get_all_posts():
+    current_user_id = g.current_user['id']  # Make sure this correctly fetches the user ID
+
+    posts = db.session.query(
+        PostTable.id,
+        PostTable.caption,
+        PostTable.photo.label('post_photo'),
+        UserProfile.id.label('user_id'),
+        UserProfile.username,
+        UserProfile.photo.label('user_photo'),
+        db.func.count(LikeTable.id).label('likes'),
+        PostTable.created_on,
+        db.func.coalesce(db.func.bool_or(LikeTable.user_id == current_user_id), False).label('liked_by_current_user')
+    ).join(UserProfile, PostTable.user_id == UserProfile.id) \
+     .outerjoin(LikeTable, PostTable.id == LikeTable.post_id) \
+     .group_by(PostTable.id, UserProfile.id) \
+     .order_by(PostTable.created_on.desc()) \
+     .all()
+
+    posts_data = [
+        {
+            "id": post.id,
+            "caption": post.caption,
+            "post_photo": f"/api/v1/photos/{post.post_photo}",
+            "user_id": post.user_id,
+            "username": post.username,
+            "user_photo": f"/api/v1/photos/{post.user_photo}",
+            "likes": post.likes,
+            "liked_by_current_user": post.liked_by_current_user,
+            "created_on": post.created_on.strftime("%d %b %Y")
+        } for post in posts
+    ]
+    
+    return jsonify(posts_data), 200
+
+
+# POST - Set a like on the current Post by the logged in User
+@app.route('/api/v1/posts/<post_id>/like', methods=['POST'])
+@authorize
+def like_post(post_id):
+    new_like = LikeTable(post_id=post_id, user_id=g.current_user['id'])
+    db.session.add(new_like)
+    db.session.commit()
+    return jsonify({"message": "Post liked successfully."}), 201
+
+
+@app.route('/api/v1/photos/<filename>', methods=['GET'])
+def get_photo(filename):
+    rootdir = app.config['UPLOAD_FOLDER']
+    return send_from_directory(os.path.join(os.getcwd(), rootdir), filename)   
+
+'''@app.route('/api/v1/users/<user_id>/posts', methods=['POST'])
+@authorize
+def add_user_post(user_id):
+    caption = request.json.get('caption')
+    photo = request.json.get('photo')
+    user_id = g.current_user...
+
+    # Get the current date and time
+    created_on = datetime.now()
+
+    # Create a new post instance with the created_on argument
+    new_post = PostTable(caption=caption, photo=photo, user_id=user_id, created_on=created_on)
+
+    # Add the new post to the database session and commit the transaction
+    db.session.add(new_post)
+    db.session.commit()
+ 
+    return jsonify({'message': 'Post added successfully.'}), 201
+
 
 @app.route('/api/v1/users/<user_id>/posts', methods=['GET'])
+@authorize
 def show_user_posts(user_id):
     user_posts = db.session.execute(db.select(PostTable).filter_by(user_id=user_id)).scalars()
     # Convert the queried posts to a list of dictionaries
@@ -186,43 +268,8 @@ def show_user_posts(user_id):
         posts_list.append(post_dict)
     return jsonify(posts_list)
 
-
-from datetime import datetime
-
-@app.route('/api/v1/users/<user_id>/posts', methods=['POST'])
-def add_user_post(user_id):
-    # Extract data from the JSON request sent via Postman
-    caption = request.json.get('caption')
-    photo = request.json.get('photo')
-    user_id = session['user_id']  # Get user ID from the session
-
-    # Get the current date and time
-    created_on = datetime.now()
-
-    # Create a new post instance with the created_on argument
-    new_post = PostTable(caption=caption, photo=photo, user_id=user_id, created_on=created_on)
-
-    # Add the new post to the database session and commit the transaction
-    db.session.add(new_post)
-    db.session.commit()
- 
-    return jsonify({'message': 'Post added successfully.'}), 201
-
-
-@app.route('/api/users/<user_id>/follow', methods=['POST'])
-def create_follow(user_id):
-    # Extract data from the JSON request sent via Postman
-    target_user_id = request.json.get('target_user_id')
-    follower_id = session['user_id']  # Get user ID from the session
-
-    new_follow = FollowTable(follower_id=follower_id, user_id=target_user_id)
-
-    db.session.add(new_follow)
-    db.session.commit()
-
-    return jsonify({'message': 'Follow relationship created successfully.'}), 201
-
 @app.route('/api/v1/posts', methods=['GET'])
+@authorize
 def show_all_posts():
     user_posts=db.session.execute(db.select(PostTable)).scalars()
     # Convert the queried posts to a list of dictionaries
@@ -238,7 +285,22 @@ def show_all_posts():
         posts_list.append(post_dict)
     return jsonify(posts_list)
 
+@app.route('/api/users/<user_id>/follow', methods=['POST'])
+@authorize
+def create_follow(user_id):
+    # Extract data from the JSON request sent via Postman
+    target_user_id = request.json.get('target_user_id')
+    follower_id = session['user_id']  # Get user ID from the session
+
+    new_follow = FollowTable(follower_id=follower_id, user_id=target_user_id)
+
+    db.session.add(new_follow)
+    db.session.commit()
+
+    return jsonify({'message': 'Follow relationship created successfully.'}), 201
+
 @app.route('/api/v1/posts/<post_id>/like', methods=['POST'])
+#@authorize
 def set_like(post_id):
     # Extract data from the JSON request sent via Postman
     post_id = request.json.get('post_id')
@@ -252,28 +314,9 @@ def set_like(post_id):
     }
     return jsonify(like_dict)
 
-###
-# Routing for  application.
-###
-
-@app.route('/')
-def home():
-    """Render website's home page."""
-    return render_template('home.html')
-
-
-@app.route('/logout',methods=['POST'])
-def logout():
-    session.pop('user_id', None)
-    if 'user_id' in session:
-        # Remove user ID from the session
-        session.pop('user_id', None)
-        return jsonify({'message': 'Logout successful.'}), 200
-    else:
-        return jsonify({'error': 'User is not logged in.'}), 401
-
 
 @app.route('/users/{user_id}', methods=['GET'])
+#@authorize
 def user_posts(user_id):
     user_posts=db.session.execute(db.select(PostTable).filter_by(user_id=user_id)).scalars()
     # Convert the queried posts to a list of dictionaries
@@ -288,6 +331,7 @@ def user_posts(user_id):
     return jsonify(posts_dict)
 
 @app.route('/posts/new', methods=['POST'])
+#@authorize
 def create_post():
     form = PostForm()
     if form.validate_on_submit():
@@ -315,6 +359,7 @@ def create_post():
             return jsonify({"errors": errors}), 400
 
 #@app.route('/<user_id>/follow', methods=['POST'])
+#@authorize
 def follow(user_id):
      # Check if the user is logged in
     if 'user_id' not in session:
@@ -332,6 +377,7 @@ def follow(user_id):
     return jsonify(follow_dict)
 
 @app.route('/posts', methods=['GET'])
+#@authorize
 def feed():
     user_posts=db.session.execute(db.select(PostTable)).scalars()
     # Convert the queried posts to a list of dictionaries
@@ -346,6 +392,7 @@ def feed():
     return jsonify(posts_dict)
 
 #@app.route('/posts/<post_id>/like', methods=['POST'])
+#@authorize
 def set_like(post_id):
     user_id = session['user_id']     #the user id number must be retrieved
     new_like = LikeTable(post_id, user_id)
@@ -355,13 +402,12 @@ def set_like(post_id):
         'post_id':post_id,
         'user_id':user_id
     }
-    return jsonify(like_dict)
+    return jsonify(like_dict)'''
 
 
 ###
 # Functionalities
 ###
-@app.route('/api/v1/photo/<filename>', methods=['GET'])
 def get_image(filename):
     return send_from_directory(os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']), filename)
 

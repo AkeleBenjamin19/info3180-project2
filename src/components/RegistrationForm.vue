@@ -58,6 +58,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
+
     let csrf_token = ref("");
     let success = ref("");
     let errors = ref([]);
