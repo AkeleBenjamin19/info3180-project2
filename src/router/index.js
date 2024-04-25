@@ -42,9 +42,12 @@ const router = createRouter({
       path: "/posts/new",
       name: "newpost",
       component: () => import('../views/NewPost.vue')
+    },
+    {
+      path: "/users/:userID",
+      name: "userprofile",
+      component: () => import('../views/UserProfileView.vue')
     }
-
-
   ]
 })
 
