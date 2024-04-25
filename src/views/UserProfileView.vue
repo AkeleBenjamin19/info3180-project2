@@ -26,6 +26,8 @@
 <script setup>
   import { ref, onMounted } from 'vue';
   import { useRoute } from 'vue-router';
+  import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+
 
   let csrfToken = ref('');
   let user = ref({});
