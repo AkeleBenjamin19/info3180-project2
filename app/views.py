@@ -151,7 +151,7 @@ def logout():
 
 # Route to add a post to user's feed
 @app.route('/api/v1/users/<user_id>/posts', methods=['POST'])
-@login_required
+@authorize
 def add_post(user_id):
     form = PostForm()
     if form.validate_on_submit():
@@ -186,7 +186,7 @@ def get_user_posts(user_id):
 
 # Route to follow a user
 @app.route('/api/users/<user_id>/follow', methods=['POST'])
-@login_required
+@authorize
 def follow_user(user_id):
     new_follow = FollowTable(follower_id=current_user.id, user_id=user_id)
     db.session.add(new_follow)
@@ -196,6 +196,7 @@ def follow_user(user_id):
 
 # Route to get all posts
 @app.route('/api/v1/posts', methods=['GET'])
+@authorize
 def get_all_posts():
     posts = db.session.query(
         PostTable.id,
@@ -232,7 +233,7 @@ def get_all_posts():
 
 # Route to set a like on a post
 @app.route('/api/v1/posts/<post_id>/like', methods=['POST'])
-@login_required
+@authorize
 def like_post(post_id):
     new_like = LikeTable(post_id=post_id, user_id=current_user.id)
     db.session.add(new_like)
